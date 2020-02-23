@@ -1,0 +1,353 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the storage account used to store Change Tokens"
+            }
+        },
+        "logicAppName": {
+            "type": "string",
+            "metadata": {
+                "description": "The name of the Logic App which will be the notification endpoint for the SharePoint webhook"
+            }
+        }
+    },
+    "variables": {
+    },
+    "resources": [
+        {
+            "name": "[parameters('logicAppName')]",
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2016-10-01",
+            "location": "[resourceGroup().location]",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections',parameters('storageAccountName'))]"
+            ],
+            "properties": {
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/schemas/2016-06-01/Microsoft.Logic.json",
+                    "actions": {
+                        "Does_request_contain_validation_token": {
+                            "actions": {
+                                "Respond_with_validation_token_to_complete_web_hook_registration": {
+                                    "description": "We need to validate the registration with SharePoint for the registration to complete successfully, this is done by returning the validation token sent in the original request",
+                                    "inputs": {
+                                        "body": "@trigger().outputs?.queries?.validationtoken",
+                                        "headers": {
+                                            "Content-Type": "text/plain"
+                                        },
+                                        "statusCode": 200
+                                    },
+                                    "kind": "Http",
+                                    "runAfter": {
+                                    },
+                                    "type": "Response"
+                                }
+                            },
+                            "description": "If the request contains a validation token then this web hook endpoint is in the process of being registered with SharePoint, if not, we can assume the registration has already been completed and a notification has been sent in the request body",
+                            "else": {
+                                "actions": {
+                                    "Iterate_Notifications": {
+                                        "actions": {
+                                            "ChangeToken": {
+                                                "inputs": "@if(empty(body('Get_change_token_from_table_storage')?['Value']),body('If_no_token_is_found_create_one_for_the_first_run')?['Value'],body('Get_change_token_from_table_storage')?['Value'])",
+                                                "runAfter": {
+                                                    "Obtain_Change_Token": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Compose"
+                                            },
+                                            "Did_query_return_any_changes": {
+                                                "actions": {
+                                                    "Iterate_list_item_changes": {
+                                                        "actions": {
+                                                            "Get_the_list_item_that_triggered_the_web_hook": {
+                                                                "inputs": {
+                                                                    "authentication": {
+                                                                        "audience": "@parameters('SPO_TENANT_URL')",
+                                                                        "type": "ManagedServiceIdentity"
+                                                                    },
+                                                                    "headers": {
+                                                                        "accept": "application/json;odata=nometadata"
+                                                                    },
+                                                                    "method": "GET",
+                                                                    "uri": "@{parameters('SPO_TENANT_URL')}@{items('Iterate_Notifications')?['siteUrl']}/_api/web/lists('@{items('Iterate_Notifications')?['resource']}')/items(@{items('Iterate_list_item_changes')?['ItemId']})"
+                                                                },
+                                                                "runAfter": {
+                                                                },
+                                                                "type": "Http"
+                                                            }
+                                                        },
+                                                        "foreach": "@body('Get_list_item_changes')?['value']",
+                                                        "runAfter": {
+                                                        },
+                                                        "type": "Foreach"
+                                                    },
+                                                    "Update_change_token_in_storage_with_token_from_item_changed_last": {
+                                                        "inputs": {
+                                                            "body": {
+                                                                "PartitionKey": "@items('Iterate_Notifications')?['resource']",
+                                                                "RowKey": "lastChangeToken",
+                                                                "Value": "@last(body('Get_list_item_changes')?['value'])?['ChangeToken']?['StringValue']"
+                                                            },
+                                                            "host": {
+                                                                "connection": {
+                                                                    "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                                                }
+                                                            },
+                                                            "method": "patch",
+                                                            "path": "/Tables/@{encodeURIComponent('changeToken')}/entities(PartitionKey='@{encodeURIComponent(items('Iterate_Notifications')?['resource'])}',RowKey='@{encodeURIComponent('lastChangeToken')}')"
+                                                        },
+                                                        "runAfter": {
+                                                            "Iterate_list_item_changes": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "type": "ApiConnection"
+                                                    }
+                                                },
+                                                "expression": {
+                                                    "and": [
+                                                        {
+                                                            "not": {
+                                                                "equals": [
+                                                                    "@empty(body('Get_list_item_changes')?['Value'])",
+                                                                    "@true"
+                                                                ]
+                                                            }
+                                                        }
+                                                    ]
+                                                },
+                                                "runAfter": {
+                                                    "Get_list_item_changes": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "If"
+                                            },
+                                            "Get_list_item_changes": {
+                                                "description": "We get changes from the SharePoint Change log using the GetChanges API, passing a ChangeQuery and ChangeToken",
+                                                "inputs": {
+                                                    "authentication": {
+                                                        "audience": "@parameters('SPO_TENANT_URL')",
+                                                        "type": "ManagedServiceIdentity"
+                                                    },
+                                                    "body": {
+                                                        "query": {
+                                                            "Add": true,
+                                                            "ChangeTokenStart": {
+                                                                "StringValue": "@{outputs('ChangeToken')}"
+                                                            },
+                                                            "Item": true,
+                                                            "RecursiveAll": true
+                                                        }
+                                                    },
+                                                    "headers": {
+                                                        "accept": "application/json;odata=nometadata",
+                                                        "content-type": "application/json"
+                                                    },
+                                                    "method": "POST",
+                                                    "uri": "@{parameters('SPO_TENANT_URL')}@{items('Iterate_Notifications')?['siteUrl']}/_api/web/lists('@{items('Iterate_Notifications')?['resource']}')/RootFolder/GetListItemChanges"
+                                                },
+                                                "runAfter": {
+                                                    "ChangeToken": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Http"
+                                            },
+                                            "Obtain_Change_Token": {
+                                                "actions": {
+                                                    "Get_change_token_from_table_storage": {
+                                                        "description": "We obtain the last Change Token stored by the previous run",
+                                                        "inputs": {
+                                                            "host": {
+                                                                "connection": {
+                                                                    "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                                                }
+                                                            },
+                                                            "method": "get",
+                                                            "path": "/Tables/@{encodeURIComponent('changeToken')}/entities(PartitionKey='@{encodeURIComponent(items('Iterate_Notifications')?['resource'])}',RowKey='@{encodeURIComponent('lastChangeToken')}')"
+                                                        },
+                                                        "runAfter": {
+                                                        },
+                                                        "type": "ApiConnection"
+                                                    },
+                                                    "If_no_token_is_found_create_one_for_the_first_run": {
+                                                        "description": "If we don't have a ChangeToken, then we create on for the current date",
+                                                        "inputs": {
+                                                            "body": {
+                                                                "PartitionKey": "@items('Iterate_Notifications')?['resource']",
+                                                                "RowKey": "lastChangeToken",
+                                                                "Value": "1;3;@{items('Iterate_Notifications')?['resource']};@{ticks(getPastTime(5,'Second'))};-1"
+                                                            },
+                                                            "host": {
+                                                                "connection": {
+                                                                    "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                                                }
+                                                            },
+                                                            "method": "post",
+                                                            "path": "/Tables/@{encodeURIComponent('changeToken')}/entities"
+                                                        },
+                                                        "runAfter": {
+                                                            "Get_change_token_from_table_storage": [
+                                                                "Failed"
+                                                            ]
+                                                        },
+                                                        "type": "ApiConnection"
+                                                    }
+                                                },
+                                                "runAfter": {
+                                                },
+                                                "type": "Scope"
+                                            }
+                                        },
+                                        "description": "Multiple notifications may be batched together into a single request if multiple changes occurred in the resource within the same time period.",
+                                        "foreach": "@triggerBody()?['value']",
+                                        "runAfter": {
+                                        },
+                                        "type": "Foreach"
+                                    },
+                                    "Respond_with_success_back_to_SharePoint_Online": {
+                                        "inputs": {
+                                            "statusCode": 200
+                                        },
+                                        "kind": "Http",
+                                        "runAfter": {
+                                            "Iterate_Notifications": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "Response"
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "not": {
+                                            "equals": [
+                                                "@trigger().outputs?.queries?.validationtoken",
+                                                "@null"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "runAfter": {
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "contentVersion": "1.0.0.0",
+                    "outputs": {
+                    },
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {
+                            },
+                            "type": "Object"
+                        },
+                        "SPO_TENANT_URL": {
+                            "defaultValue": "https://trinder365.sharepoint.com",
+                            "type": "String"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "description": "A HTTP request is sent to this endpoint when the webhook is first being registered and when changes occur within the resource",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "properties": {
+                                        "value": {
+                                            "items": {
+                                                "properties": {
+                                                    "clientState": {
+                                                        "type": "string"
+                                                    },
+                                                    "expirationDateTime": {
+                                                        "type": "string"
+                                                    },
+                                                    "resource": {
+                                                        "type": "string"
+                                                    },
+                                                    "siteUrl": {
+                                                        "type": "string"
+                                                    },
+                                                    "subscriptionId": {
+                                                        "type": "string"
+                                                    },
+                                                    "tenantId": {
+                                                        "type": "string"
+                                                    },
+                                                    "webId": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "subscriptionId",
+                                                    "clientState",
+                                                    "expirationDateTime",
+                                                    "resource",
+                                                    "tenantId",
+                                                    "siteUrl",
+                                                    "webId"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            },
+                            "kind": "Http",
+                            "type": "Request"
+                        }
+                    }
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuretables": {
+                                "connectionId": "[concat(subscription().id,'/resourceGroups/', resourceGroup().name,'/providers/Microsoft.Web/connections/',parameters('storageAccountName'))]",
+                                "connectionName": "azuretables",
+                                "id": "[concat(subscription().id,'/providers/Microsoft.Web/locations/', resourceGroup().location,'/managedApis/azuretables')]"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "name": "[parameters('storageAccountName')]",
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+            },
+            "properties": {
+                "displayName": "[parameters('storageAccountName')]",
+                "parameterValues": {
+                    "storageaccount": "[parameters('storageAccountName')]",
+                    "sharedkey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2019-04-01').keys[0].value]"
+                },
+                "api": {
+                    "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                }
+            }
+        }
+    ],
+    "outputs": {
+    },
+    "functions": [
+    ]
+}
