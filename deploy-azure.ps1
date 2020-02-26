@@ -81,7 +81,7 @@ $approleassignment = @{
     tenantdomain         = $o365tenantdomain;
     managedidentityname  = $logicappname;
     serviceprincipalname = "Office 365 SharePoint Online";
-    approlename          = "Sites.ReadWrite.All"
+    approlename          = "Sites.Manage.All"
 } 
 ./scripts/add-approleassignment.ps1 @approleassignment
 

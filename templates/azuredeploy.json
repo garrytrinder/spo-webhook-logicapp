@@ -132,6 +132,55 @@
                                                 },
                                                 "type": "If"
                                             },
+                                            "Ensure_webhook_subscription": {
+                                                "actions": {
+                                                    "Get_subscription": {
+                                                        "inputs": {
+                                                            "authentication": {
+                                                                "audience": "@parameters('SPO_TENANT_URL')",
+                                                                "type": "ManagedServiceIdentity"
+                                                            },
+                                                            "headers": {
+                                                                "accept": "application/json;odata=nometadata",
+                                                                "content-type": "application/json"
+                                                            },
+                                                            "method": "GET",
+                                                            "uri": "@{parameters('SPO_TENANT_URL')}@{items('Iterate_Notifications')?['siteUrl']}/_api/web/lists('@{items('Iterate_Notifications')?['resource']}')/subscriptions('@{items('Iterate_Notifications')?['subscriptionId']}')"
+                                                        },
+                                                        "runAfter": {
+                                                        },
+                                                        "type": "Http"
+                                                    },
+                                                    "Update_subscription_expiration": {
+                                                        "inputs": {
+                                                            "authentication": {
+                                                                "audience": "@parameters('SPO_TENANT_URL')",
+                                                                "type": "ManagedServiceIdentity"
+                                                            },
+                                                            "body": {
+                                                                "clientState": "@items('Iterate_Notifications')?['clientState']",
+                                                                "expirationDateTime": "@getFutureTime(180,'Day')",
+                                                                "notificationUrl": "@body('Get_subscription')?['notificationUrl']"
+                                                            },
+                                                            "headers": {
+                                                                "accept": "application/json",
+                                                                "content-type": "application/json"
+                                                            },
+                                                            "method": "PATCH",
+                                                            "uri": "@{parameters('SPO_TENANT_URL')}@{items('Iterate_Notifications')?['siteUrl']}/_api/web/lists('@{items('Iterate_Notifications')?['resource']}')/subscriptions('@{items('Iterate_Notifications')?['subscriptionId']}')"
+                                                        },
+                                                        "runAfter": {
+                                                            "Get_subscription": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "type": "Http"
+                                                    }
+                                                },
+                                                "runAfter": {
+                                                },
+                                                "type": "Scope"
+                                            },
                                             "Get_list_item_changes": {
                                                 "description": "We get changes from the SharePoint Change log using the GetChanges API, passing a ChangeQuery and ChangeToken",
                                                 "inputs": {
@@ -205,6 +254,9 @@
                                                     }
                                                 },
                                                 "runAfter": {
+                                                    "Ensure_webhook_subscription": [
+                                                        "Succeeded"
+                                                    ]
                                                 },
                                                 "type": "Scope"
                                             }
@@ -214,18 +266,6 @@
                                         "runAfter": {
                                         },
                                         "type": "Foreach"
-                                    },
-                                    "Respond_with_success_back_to_SharePoint_Online": {
-                                        "inputs": {
-                                            "statusCode": 200
-                                        },
-                                        "kind": "Http",
-                                        "runAfter": {
-                                            "Iterate_Notifications": [
-                                                "Succeeded"
-                                            ]
-                                        },
-                                        "type": "Response"
                                     }
                                 }
                             },
