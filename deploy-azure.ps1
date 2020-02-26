@@ -73,6 +73,9 @@ $tablestorage = @{
 Write-Host "Creating logic app and connections... " -ForegroundColor Magenta
 az group deployment create -g $resourcegroupname -o none --template-file ./templates/azuredeploy.json  --parameters storageAccountName=$storageaccountname logicAppName=$logicappname
 
+#Sleep a little whilst the managed identity gets created
+Start-Sleep -Seconds 5
+
 Write-Host "Assigning 'Sites.ReadWrite.All' application role to Managed Identity... " -ForegroundColor DarkMagenta
 $approleassignment = @{
     tenantdomain         = $o365tenantdomain;
