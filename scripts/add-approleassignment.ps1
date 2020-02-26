@@ -18,13 +18,22 @@ $spo = az ad sp list --display-name $serviceprincipalname --query "{ AppRoleId: 
 
 $msi = az ad sp list --display-name $managedidentityname --query "{ ObjectId: [0] .objectId }" -o json | ConvertFrom-Json
 
-$body = @{ 
-    "id"          = $spo.AppRoleId; 
-    "principalId" = $msi.ObjectId; 
-    "resourceId"  = $spo.ObjectId 
-} | ConvertTo-Json -Compress
+$assignments = az rest -m get -u "https://graph.windows.net/$tenantdomain/servicePrincipals/$($msi.ObjectId)/appRoleAssignedTo?api-version=1.6" -o json | ConvertFrom-Json
 
-$body = $body.Replace('"', '\"')
+$hasAssignment = $false
+$assignments | ForEach-Object {
+    if($_.value.id -eq $spo.AppRoleId) { $hasAssignment = $true }
+}
 
-# create role assignment
-az rest -m post -u "https://graph.windows.net/$tenantdomain/servicePrincipals/$($msi.ObjectId)/appRoleAssignments?api-version=1.6" -b "$body" -o none
+if($hasAssignment -ne $true){    
+    $body = @{ 
+        "id"          = $spo.AppRoleId; 
+        "principalId" = $msi.ObjectId; 
+        "resourceId"  = $spo.ObjectId 
+    } | ConvertTo-Json -Compress
+    
+    $body = $body.Replace('"', '\"')
+    
+    # create role assignment
+    az rest -m post -u "https://graph.windows.net/$tenantdomain/servicePrincipals/$($msi.ObjectId)/appRoleAssignments?api-version=1.6" -b "$body" -o none
+}
