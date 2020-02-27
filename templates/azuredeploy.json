@@ -56,6 +56,7 @@
                                     "Iterate_Notifications": {
                                         "actions": {
                                             "ChangeToken": {
+                                                "description": "This action grabs the changeToken from the appropriate action in the above scope",
                                                 "inputs": "@if(empty(body('Get_change_token_from_table_storage')?['Value']),body('If_no_token_is_found_create_one_for_the_first_run')?['Value'],body('Get_change_token_from_table_storage')?['Value'])",
                                                 "runAfter": {
                                                     "Obtain_Change_Token": [
@@ -69,6 +70,7 @@
                                                     "Iterate_list_item_changes": {
                                                         "actions": {
                                                             "Get_the_list_item_that_triggered_the_web_hook": {
+                                                                "description": "We make a call to the grab the item",
                                                                 "inputs": {
                                                                     "authentication": {
                                                                         "audience": "@parameters('SPO_TENANT_URL')",
@@ -83,14 +85,26 @@
                                                                 "runAfter": {
                                                                 },
                                                                 "type": "Http"
+                                                            },
+                                                            "Your_business_logic_goes_here": {
+                                                                "actions": {
+                                                                },
+                                                                "runAfter": {
+                                                                    "Get_the_list_item_that_triggered_the_web_hook": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "type": "Scope"
                                                             }
                                                         },
+                                                        "description": "Our change query returned some results from the SharePoint Change Log and has given us a reference to the items that have changed so that we can go and obtain the actual list item",
                                                         "foreach": "@body('Get_list_item_changes')?['value']",
                                                         "runAfter": {
                                                         },
                                                         "type": "Foreach"
                                                     },
                                                     "Update_change_token_in_storage_with_token_from_item_changed_last": {
+                                                        "description": "After iterating over all of the changed items we take the ChangeToken from the last item that was changed and store it in Table storage ready for the next run",
                                                         "inputs": {
                                                             "body": {
                                                                 "PartitionKey": "@items('Iterate_Notifications')?['resource']",
@@ -113,6 +127,7 @@
                                                         "type": "ApiConnection"
                                                     }
                                                 },
+                                                "description": "We need to check whether any changes have been made that we are interested in",
                                                 "expression": {
                                                     "and": [
                                                         {
@@ -135,6 +150,7 @@
                                             "Ensure_webhook_subscription": {
                                                 "actions": {
                                                     "Get_subscription": {
+                                                        "description": "Get the existing subscription",
                                                         "inputs": {
                                                             "authentication": {
                                                                 "audience": "@parameters('SPO_TENANT_URL')",
@@ -152,6 +168,7 @@
                                                         "type": "Http"
                                                     },
                                                     "Update_subscription_expiration": {
+                                                        "description": "Update the expirationDateTime property on the webhook subscription, incrementing the current expiryDateTime value by the maximum allowed which is 180 days",
                                                         "inputs": {
                                                             "authentication": {
                                                                 "audience": "@parameters('SPO_TENANT_URL')",
@@ -177,12 +194,13 @@
                                                         "type": "Http"
                                                     }
                                                 },
+                                                "description": "We update the webhook subscription on every run to make sure that subscription doesn't expire",
                                                 "runAfter": {
                                                 },
                                                 "type": "Scope"
                                             },
                                             "Get_list_item_changes": {
-                                                "description": "We get changes from the SharePoint Change log using the GetChanges API, passing a ChangeQuery and ChangeToken",
+                                                "description": "We get changes from the SharePoint Change log using the GetChanges API, passing a ChangeQuery which contains our query and the ChangeToken which defines the time period between now and the last change",
                                                 "inputs": {
                                                     "authentication": {
                                                         "audience": "@parameters('SPO_TENANT_URL')",
@@ -230,7 +248,7 @@
                                                         "type": "ApiConnection"
                                                     },
                                                     "If_no_token_is_found_create_one_for_the_first_run": {
-                                                        "description": "If we don't have a ChangeToken, then we create on for the current date",
+                                                        "description": "If we don't have a ChangeToken, then we create on for the current date time minus 5 seconds.",
                                                         "inputs": {
                                                             "body": {
                                                                 "PartitionKey": "@items('Iterate_Notifications')?['resource']",
@@ -253,6 +271,7 @@
                                                         "type": "ApiConnection"
                                                     }
                                                 },
+                                                "description": "We need to obtain the last changeToken used in the previous run, or if it doesn't exist, we will create a new changeToken for use with the first run",
                                                 "runAfter": {
                                                     "Ensure_webhook_subscription": [
                                                         "Succeeded"
