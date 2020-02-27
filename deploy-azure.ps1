@@ -14,7 +14,10 @@ param (
     $logicappname,
     [Parameter(Mandatory = $true)]
     [string]
-    $o365tenantdomain
+    $o365tenantdomain,
+    [Parameter(Mandatory = $true)]
+    [string]
+    $spotenanturl
 )
 
 Write-Host @"
@@ -71,7 +74,7 @@ $tablestorage = @{
 ./scripts/add-tablestorage.ps1 @tablestorage 
 
 Write-Host "Creating logic app and connections... " -ForegroundColor Magenta
-az group deployment create -g $resourcegroupname -o none --template-file ./templates/azuredeploy.json  --parameters storageAccountName=$storageaccountname logicAppName=$logicappname
+az group deployment create -g $resourcegroupname -o none --template-file ./templates/azuredeploy.json  --parameters storageAccountName=$storageaccountname logicAppName=$logicappname spoTenantUrl=$spotenanturl
 
 #Sleep a little whilst the managed identity gets created
 Start-Sleep -Seconds 5
