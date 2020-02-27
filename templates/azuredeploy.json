@@ -13,6 +13,12 @@
             "metadata": {
                 "description": "The name of the Logic App which will be the notification endpoint for the SharePoint webhook"
             }
+        },
+        "spoTenantUrl": {
+            "type": "string",
+            "metadata": {
+                "description": "The url of the root SharePoint site"
+            }
         }
     },
     "variables": {
@@ -315,7 +321,7 @@
                             "type": "Object"
                         },
                         "SPO_TENANT_URL": {
-                            "defaultValue": "https://trinder365.sharepoint.com",
+                            "defaultValue": "[parameters('spoTenantUrl')]",
                             "type": "String"
                         }
                     },
